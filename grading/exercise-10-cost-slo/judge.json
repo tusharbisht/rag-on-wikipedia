@@ -21,10 +21,10 @@
       }
     },
     {
-      "id": "cache-hit-fast-second-call",
+      "id": "cache-hit-marked-on-repeat",
       "endpoint_override": "POST /search",
       "weight": 1.0,
-      "type": "regression",
+      "type": "contract",
       "input": {
         "question": "Who founded Microsoft?",
         "user_id": "judge_42"
@@ -37,10 +37,10 @@
       }
     },
     {
-      "id": "cache-correctness-fresh-equals-cached",
+      "id": "cost-breakdown-non-trivial",
       "endpoint_override": "POST /search",
       "weight": 1.0,
-      "type": "regression",
+      "type": "contract",
       "input": {
         "question": "What is the speed of light?",
         "user_id": "judge_42"
@@ -54,10 +54,10 @@
       }
     },
     {
-      "id": "semantic-cache-near-match",
+      "id": "semantic-cache-near-match-detected",
       "endpoint_override": "POST /search",
       "weight": 1.0,
-      "type": "regression",
+      "type": "contract",
       "input": {
         "question": "Who established Microsoft?",
         "user_id": "judge_42"

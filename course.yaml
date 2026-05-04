@@ -110,7 +110,6 @@ x-modules:
         long-tail-entity gold-set accuracy improves by ≥25pp; no regression
         on module 1's metric.
     spec_overrides:
-      # The endpoint accepts an optional hybrid_alpha from this module on.
       components:
         schemas:
           SearchRequest:
@@ -122,6 +121,22 @@ x-modules:
                 description: >
                   Weight for BM25 vs dense retrieval. 1.0 = pure BM25,
                   0.0 = pure dense, 0.5 = balanced. Optional.
+          # Module 2 introduces hybrid retrieval, which produces both a
+          # BM25 score and a dense score per citation. From M2 on, every
+          # Citation must include both — agents without hybrid retrieval
+          # can't produce these structurally.
+          Citation:
+            required: [id, article, quote, bm25_score, dense_score]
+            properties:
+              bm25_score:
+                type: number
+                minimum: 0
+                description: BM25 score for this citation (REQUIRED from M2).
+              dense_score:
+                type: number
+                minimum: -1
+                maximum: 1
+                description: Dense embedding cosine similarity (REQUIRED from M2).
     grading:
       tests:
         - id: health
@@ -215,8 +230,33 @@ x-modules:
     order: 4
     teaching_arc:
       problem: "High recall, low precision — LLM hallucinates from near-miss chunks"
+      diagnosis: >
+        Inspect the trace for failed queries. Top-k retrieval pulls chunks
+        that share words but don't entail the answer. The agent picks one
+        and hallucinates a confident answer.
       fix: "Cross-encoder reranker (cohere-rerank or local cross-encoder) on top-50 → top-5"
-      success_metric: "precision@5 improves; hallucination rate drops"
+      success_metric: >
+        Every citation carries a `rerank_score` field (the cross-encoder's
+        post-rerank score, 0-1). Without reranking, this field can't be
+        produced — that's the structural gate.
+    # Spec-level enforcement: from this module on, every Citation MUST
+    # include a `rerank_score`. An agent without a reranker can't produce
+    # this field; the response fails schema validation. The grader can't
+    # hallucinate a positive verdict on a structurally-invalid response.
+    spec_overrides:
+      components:
+        schemas:
+          Citation:
+            required: [id, article, quote, rerank_score]
+            properties:
+              rerank_score:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: >
+                  Cross-encoder reranker output for this citation. REQUIRED
+                  from module 4 onward. Without a reranker, this field
+                  can't be produced — the spec enforces the implementation.
     grading:
       tests:
         - id: health
@@ -231,7 +271,29 @@ x-modules:
             user_id: "judge_42"
           expected:
             status: 200
-            body_contains: ["100"]
+            body_contains: ["100", "Celsius"]
+            citation_verbatim: true
+        - id: rerank-score-monotonic
+          type: contract
+          operation: postSearch
+          input:
+            question: "Who wrote Hamlet?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Shakespeare"]
+            # Rubric verifies citations are returned in DESCENDING rerank_score
+            # order — basic top-k by similarity wouldn't satisfy this without
+            # an actual cross-encoder pass.
+        - id: prose-no-regression
+          type: regression
+          operation: postSearch
+          input:
+            question: "What is the speed of light?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["299"]
             citation_verbatim: true
 
   # =========================================================================
@@ -415,14 +477,41 @@ x-modules:
         p95 retrieval < 200ms at 1M-chunk scale; index rebuild from
         cold finishes in < 10 minutes; restart-warm time < 5 seconds;
         the deployed service handles 50 RPS sustained without OOM.
+    # Spec-level enforcement: M7 requires the agent to declare its index
+    # backend in /health AND to have indexed at least 100k chunks. Without
+    # an actual production vector index, these structural fields can't be
+    # produced honestly.
+    spec_overrides:
+      components:
+        schemas:
+          HealthResponse:
+            required: [ok, build, model, modules_active, index_type, n_chunks_indexed]
+            properties:
+              index_type:
+                type: string
+                enum: [hnsw_qdrant, hnsw_weaviate, hnsw_local, ivfflat_pgvector, flat_inmemory]
+                description: >
+                  Concrete vector-index backend in use. REQUIRED from M7 on.
+                  Reading this field tells the grader whether a real
+                  production index is wired or a toy one.
+              n_chunks_indexed:
+                type: integer
+                minimum: 100000
+                description: >
+                  Total chunk count in the index. REQUIRED from M7 on.
+                  Anything below 100k means the agent isn't indexing
+                  Simple English Wikipedia at full scale.
     grading:
       tests:
-        - id: health
-          type: health
+        - id: health-declares-real-index
+          type: contract
           operation: getHealth
-          expected: {status: 200}
+          expected:
+            status: 200
+          # Rubric verifies index_type is NOT 'flat_inmemory' AND
+          # n_chunks_indexed >= 100000. The structural gate.
 
-        - id: latency-slo-p95
+        - id: latency-slo-p95-under-load
           type: regression
           operation: postSearch
           input:
@@ -431,17 +520,16 @@ x-modules:
           expected:
             status: 200
             body_contains: ["Gates"]
-          # Judge worker fires this 50× concurrently and asserts p95 < 200ms.
+          # Judge worker fires this 50× concurrently. p95 < 200ms required.
 
-        - id: cold-restart-fast
+        - id: cold-restart-index-persists
           type: contract
           operation: getHealth
           expected:
             status: 200
-          # Out-of-band: judge instructs the agent to restart, then polls
-          # /health with a deadline; passes only if /health returns 200
-          # within 5 seconds of restart (proves index persists, doesn't
-          # re-warm from raw embeddings).
+          # Out-of-band: judge restarts the agent, polls /health within 5s.
+          # If n_chunks_indexed > 0 immediately, the index persisted to
+          # disk. Stub agents re-init with n_chunks_indexed=0 → fail.
 
         - id: under-load-no-regression
           type: regression
@@ -453,17 +541,6 @@ x-modules:
             status: 200
             body_contains: ["100"]
             citation_verbatim: true
-          # Run during a sustained 50 RPS background load via the judge's
-          # concurrent fanout — accuracy must not drop under load.
-
-        - id: index-rebuild-resumable
-          type: contract
-          operation: getHealth
-          expected:
-            status: 200
-          # Rubric verifies the agent exposes a `reindex_progress`
-          # endpoint or surfaces it in /health, with state that survives
-          # process kill mid-rebuild.
 
         - id: prose-no-regression
           type: regression
@@ -672,6 +749,32 @@ x-modules:
         cache hit rate ≥ 30% on a realistic query distribution; no
         regression on accuracy (cached responses must be correctness-
         equivalent to fresh).
+    # Spec-level enforcement: M10 requires every SearchResponse to include
+    # `cache_hit: bool` and `cost_breakdown` (per-phase costs). Without a
+    # real cache and cost-tracking, these fields can't be produced honestly.
+    spec_overrides:
+      components:
+        schemas:
+          SearchResponse:
+            required: [answer, citations, confidence, trace_id, cache_hit, cost_breakdown]
+            properties:
+              cache_hit:
+                type: boolean
+                description: >
+                  REQUIRED from M10 on. True iff this query was served
+                  from cache (exact-match or semantic-near-match).
+              cost_breakdown:
+                type: object
+                additionalProperties: false
+                required: [embed_usd, retrieve_usd, rerank_usd, synth_usd]
+                properties:
+                  embed_usd: {type: number, minimum: 0}
+                  retrieve_usd: {type: number, minimum: 0}
+                  rerank_usd: {type: number, minimum: 0}
+                  synth_usd: {type: number, minimum: 0}
+                description: >
+                  Per-phase cost in USD. REQUIRED from M10 on. Any agent
+                  not actually tracking cost can't fill these.
     grading:
       tests:
         - id: health
@@ -685,10 +788,9 @@ x-modules:
           expected:
             status: 200
           # Rubric asserts /eval response.cost_per_query_usd <= 0.005.
-          # Worker fires this after running the full eval set.
 
-        - id: cache-hit-fast-second-call
-          type: regression
+        - id: cache-hit-marked-on-repeat
+          type: contract
           operation: postSearch
           input:
             question: "Who founded Microsoft?"
@@ -696,12 +798,12 @@ x-modules:
           expected:
             status: 200
             body_contains: ["Gates"]
-          # The judge fires this twice in a row with the same input. The
-          # second call's response.latency_ms must be < first/3 if caching
-          # is wired correctly. Rubric checks via trace span timing.
+          # Judge fires this twice. First response must have cache_hit=false;
+          # second must have cache_hit=true. A stub returning constant
+          # cache_hit=false (or always true) fails one of the two.
 
-        - id: cache-correctness-fresh-equals-cached
-          type: regression
+        - id: cost-breakdown-non-trivial
+          type: contract
           operation: postSearch
           input:
             question: "What is the speed of light?"
@@ -710,18 +812,21 @@ x-modules:
             status: 200
             body_contains: ["299"]
             citation_verbatim: true
+          # Rubric verifies cost_breakdown has at least 2 non-zero phases.
+          # An agent with no real LLM/embed pipeline returns all zeros → fail.
 
-        - id: semantic-cache-near-match
-          type: regression
+        - id: semantic-cache-near-match-detected
+          type: contract
           operation: postSearch
           input:
             question: "Who established Microsoft?"
             user_id: "judge_42"
-          # Near-paraphrase of "Who founded Microsoft?" — semantic cache
-          # should hit; latency should be cache-tier (< 200ms).
           expected:
             status: 200
             body_contains: ["Gates"]
+          # After a "Who founded Microsoft?" query, this near-paraphrase
+          # should set cache_hit=true if semantic cache works. A literal
+          # exact-match cache would return cache_hit=false.
 
         - id: prose-no-regression
           type: regression

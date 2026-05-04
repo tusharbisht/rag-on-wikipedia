@@ -23,7 +23,41 @@
       "expected": {
         "status": 200,
         "body_contains": [
-          "100"
+          "100",
+          "Celsius"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "rerank-score-monotonic",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "contract",
+      "input": {
+        "question": "Who wrote Hamlet?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Shakespeare"
+        ]
+      }
+    },
+    {
+      "id": "prose-no-regression",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the speed of light?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "299"
         ],
         "citation_verbatim": true
       }

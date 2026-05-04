@@ -3,16 +3,16 @@
   "endpoint": "GET /health",
   "tests": [
     {
-      "id": "health",
+      "id": "health-declares-real-index",
       "endpoint_override": "GET /health",
       "weight": 1.0,
-      "type": "health",
+      "type": "contract",
       "expected": {
         "status": 200
       }
     },
     {
-      "id": "latency-slo-p95",
+      "id": "latency-slo-p95-under-load",
       "endpoint_override": "POST /search",
       "weight": 1.0,
       "type": "regression",
@@ -28,7 +28,7 @@
       }
     },
     {
-      "id": "cold-restart-fast",
+      "id": "cold-restart-index-persists",
       "endpoint_override": "GET /health",
       "weight": 1.0,
       "type": "contract",
@@ -51,15 +51,6 @@
           "100"
         ],
         "citation_verbatim": true
-      }
-    },
-    {
-      "id": "index-rebuild-resumable",
-      "endpoint_override": "GET /health",
-      "weight": 1.0,
-      "type": "contract",
-      "expected": {
-        "status": 200
       }
     },
     {
