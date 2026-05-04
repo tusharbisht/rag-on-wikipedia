@@ -1,0 +1,37 @@
+[project]
+name = "rag-on-wikipedia"
+version = "0.1.0"
+description = "Production-Scale RAG on Wikipedia — course starter"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "anthropic>=0.40",
+    "openai>=1.50",
+    "pgvector>=0.3",
+    "psycopg2-binary>=2.9",
+    "mwparserfromhell>=0.6",
+    "rank-bm25>=0.2",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

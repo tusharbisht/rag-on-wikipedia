@@ -1,0 +1,32 @@
+{
+  "branch": "exercise/03-query-decomposition",
+  "endpoint": "GET /health",
+  "tests": [
+    {
+      "id": "health",
+      "endpoint_override": "GET /health",
+      "weight": 1.0,
+      "type": "health",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "multi-hop-jfk-wife-at-assassination",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who was the wife of the 35th US president when he was assassinated?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Jacqueline"
+        ],
+        "citation_verbatim": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "branch": "exercise/01-structure-aware-chunking",
+  "endpoint": "GET /health",
+  "tests": [
+    {
+      "id": "health",
+      "endpoint_override": "GET /health",
+      "weight": 1.0,
+      "type": "health",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "factual-table-lookup-state-capital",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the capital of Wyoming?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Cheyenne"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "factual-table-lookup-population",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the population of Liechtenstein?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "prose-lookup-no-regression",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who wrote Hamlet?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Shakespeare"
+        ]
+      }
+    }
+  ]
+}

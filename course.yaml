@@ -1,0 +1,653 @@
+# Production-Scale RAG on Wikipedia — single source of truth.
+#
+# Authored against the claude-code-lms course.yaml spec. Every artefact
+# downstream (grading/*/judge.json, SUBMISSION.md) is generated from this
+# file. Do not hand-edit those.
+#
+# Workflow:
+#   $ cli validate /path/to/course.yaml          # parse + structural checks
+#   $ cli render-judge /path/to/course.yaml      # write grading/*/judge.json
+#   $ cli render-docs /path/to/course.yaml       # write SUBMISSION.md
+#   $ git add . && git commit && git push
+#   $ cli validate https://github.com/<owner>/rag-on-wikipedia   # post-push gate
+
+# ---- x-course ----------------------------------------------------------
+
+x-course:
+  id: rag-on-wikipedia
+  title: "Production-Scale RAG on Wikipedia"
+  description: >
+    Build naive RAG, hit production shortcomings module by module, evolve to
+    a system that handles full Wikipedia at scale. By the end you can
+    diagnose any RAG failure by inspecting the trace, operate a RAG system
+    against SLOs, and ship eval-driven improvements safely.
+  skill_ladder_position: 2
+  prerequisites: [cs-demo-agent-to-production]
+  pass_threshold_pct: 70
+
+# ---- x-modules ---------------------------------------------------------
+
+x-modules:
+
+  # =========================================================================
+  # Module 1: Structure-aware chunking
+  # =========================================================================
+  - branch: exercise/01-structure-aware-chunking
+    title: "Structure-aware chunking"
+    order: 1
+    teaching_arc:
+      problem: >
+        The naive baseline chunks by paragraph, destroying tables, infoboxes,
+        lists, and section context. Failed queries on factual lookups in
+        tabular content reveal retrieved chunks with mid-row breaks.
+      diagnosis: >
+        Inspect /trace for failed queries. Find chunks with broken structure.
+        Audit Wikipedia markup parser output.
+      fix: >
+        Parse Wikipedia markup; treat tables, infoboxes, lists, and headed
+        sections as atomic units. Sliding-window with overlap for prose.
+      success_metric: >
+        factual-table-lookup gold-set accuracy improves by ≥15pp; no regression
+        on prose-lookup queries.
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected:
+            status: 200
+
+        - id: factual-table-lookup-state-capital
+          type: regression
+          operation: postSearch
+          input:
+            question: "What is the capital of Wyoming?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Cheyenne"]
+            citation_verbatim: true
+
+        - id: factual-table-lookup-population
+          type: regression
+          operation: postSearch
+          input:
+            question: "What is the population of Liechtenstein?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            citation_verbatim: true
+
+        - id: prose-lookup-no-regression
+          type: regression
+          operation: postSearch
+          input:
+            question: "Who wrote Hamlet?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Shakespeare"]
+
+  # =========================================================================
+  # Module 2: Hybrid retrieval (BM25 + dense)
+  # =========================================================================
+  - branch: exercise/02-hybrid-retrieval
+    title: "Hybrid retrieval"
+    order: 2
+    teaching_arc:
+      problem: >
+        Pure semantic retrieval misses exact-name lookups. Queries like
+        "What's the capital of Burundi?" return Africa-related context but
+        not the actual Gitega article — embeddings aren't tuned for rare
+        named entities.
+      diagnosis: >
+        Run a long-tail entity-lookup gold set. Observe that top-k semantic
+        results are thematically similar but don't contain the answer.
+      fix: >
+        Run BM25 in parallel with dense retrieval; merge with reciprocal
+        rank fusion. Tune `hybrid_alpha` (weight) per query class.
+      success_metric: >
+        long-tail-entity gold-set accuracy improves by ≥25pp; no regression
+        on module 1's metric.
+    spec_overrides:
+      # The endpoint accepts an optional hybrid_alpha from this module on.
+      components:
+        schemas:
+          SearchRequest:
+            properties:
+              hybrid_alpha:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: >
+                  Weight for BM25 vs dense retrieval. 1.0 = pure BM25,
+                  0.0 = pure dense, 0.5 = balanced. Optional.
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected:
+            status: 200
+
+        - id: longtail-entity-burundi
+          type: regression
+          operation: postSearch
+          input:
+            question: "What's the capital of Burundi?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Gitega"]
+            citation_verbatim: true
+
+        - id: longtail-entity-tucows
+          type: regression
+          operation: postSearch
+          input:
+            question: "What does the company Tucows do?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            citation_verbatim: true
+
+        - id: hybrid-alpha-respected
+          type: contract
+          operation: postSearch
+          input:
+            question: "Who is the current CEO of Microsoft?"
+            user_id: "judge_42"
+            hybrid_alpha: 0.7
+          expected:
+            status: 200
+
+        - id: prose-lookup-no-regression
+          type: regression
+          operation: postSearch
+          input:
+            question: "Who wrote Hamlet?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Shakespeare"]
+
+  # =========================================================================
+  # Module 3: Query rewriting + decomposition
+  # =========================================================================
+  - branch: exercise/03-query-decomposition
+    title: "Query rewriting and decomposition"
+    order: 3
+    teaching_arc:
+      problem: >
+        Multi-hop and complex queries fail. Compound questions retrieve
+        nothing useful because no single chunk contains the full answer.
+      diagnosis: >
+        Inspect failed queries. Notice they contain implicit sub-questions
+        the retriever can't satisfy in one shot.
+      fix: >
+        LLM-based query rewriter; query decomposition (split into
+        sub-queries, retrieve per sub-query, merge contexts).
+      success_metric: >
+        multi-hop gold-set accuracy improves by ≥30pp.
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected:
+            status: 200
+        - id: multi-hop-jfk-wife-at-assassination
+          type: regression
+          operation: postSearch
+          input:
+            question: "Who was the wife of the 35th US president when he was assassinated?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["Jacqueline"]
+            citation_verbatim: true
+
+  # =========================================================================
+  # Module 4: Re-ranking
+  # =========================================================================
+  - branch: exercise/04-reranking
+    title: "Cross-encoder re-ranking"
+    order: 4
+    teaching_arc:
+      problem: "High recall, low precision — LLM hallucinates from near-miss chunks"
+      fix: "Cross-encoder reranker (cohere-rerank or local cross-encoder) on top-50 → top-5"
+      success_metric: "precision@5 improves; hallucination rate drops"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+        - id: precision-after-rerank
+          type: regression
+          operation: postSearch
+          input:
+            question: "What is the boiling point of water at sea level?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["100"]
+            citation_verbatim: true
+
+  # =========================================================================
+  # Module 5: Citation faithfulness + confidence calibration
+  # =========================================================================
+  - branch: exercise/05-citation-faithfulness
+    title: "Citation faithfulness and confidence calibration"
+    order: 5
+    teaching_arc:
+      problem: >
+        Even with good retrieval, the model fills gaps with prior knowledge
+        instead of marking uncertainty. Citations exist but don't actually
+        support their claims.
+      fix: >
+        Per-claim verbatim citation contract; confidence calibration;
+        "I don't know" gating when sources are insufficient.
+      success_metric: >
+        Hallucination rate drops below 2%; calibration ECE < 0.05 on a
+        50-Q calibration eval set.
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+        - id: unanswerable-gating
+          type: adversarial
+          operation: postSearch
+          input:
+            question: "What did Napoleon eat for breakfast on March 7, 1803?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["insufficient"]
+        - id: citation-supports-claim
+          type: regression
+          operation: postSearch
+          input:
+            question: "When was the Eiffel Tower completed?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            body_contains: ["1889"]
+            citation_verbatim: true
+
+  # =========================================================================
+  # Modules 6-11: stubs — fully spec when authoring resumes.
+  # Each carries a single health probe so the validator passes; real
+  # tests are filled in module-by-module as we author EXERCISE.md prose
+  # and design the gold sets.
+  # =========================================================================
+
+  - branch: exercise/06-disambiguation
+    title: "Disambiguation and entity resolution"
+    order: 6
+    teaching_arc:
+      problem: '"Mercury" returns mixed planet/element/god/band content'
+      fix: "NER on query → entity link via Wikidata → prioritise resolved entity"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  - branch: exercise/07-vector-scale
+    title: "Vector index at production scale"
+    order: 7
+    teaching_arc:
+      problem: "pgvector chokes at 33M chunks; p95 > 5s"
+      fix: "HNSW + Qdrant/Weaviate; sharding; batched embedding pipeline"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  - branch: exercise/08-freshness
+    title: "Index freshness via change stream"
+    order: 8
+    teaching_arc:
+      problem: "Wikipedia changes; stale index returns out-of-date answers"
+      fix: "Wikipedia recent-changes API → upsert pipeline; freshness SLO"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  - branch: exercise/09-adversarial
+    title: "Prompt-injection robustness"
+    order: 9
+    teaching_arc:
+      problem: "Malicious Wikipedia content tries to inject instructions"
+      fix: "Content sanitisation; instruction isolation; injection detection"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  - branch: exercise/10-cost-slo
+    title: "Cost optimization to SLO"
+    order: 10
+    teaching_arc:
+      problem: "Per-query cost runs over the production target"
+      fix: "Semantic + exact response caching; smaller embed/rerank models; prompt compression"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  - branch: exercise/11-eval-driven
+    title: "Eval-driven iteration"
+    order: 11
+    teaching_arc:
+      problem: "Too many moving parts — can't tell if changes are net-positive"
+      fix: "Structured eval framework; A/B; CI regression gate; per-failure-class slicing"
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+
+  # =========================================================================
+  # Final: integrated production deploy
+  # =========================================================================
+  - branch: final/integrated
+    title: "Production deploy at SLO"
+    order: 12
+    teaching_arc:
+      problem: "Bring all modules together; meet every SLO simultaneously"
+      success_metric: >
+        accuracy ≥ 85%, p95 < 500ms, cost < $0.005/q,
+        hallucination < 2%, freshness lag < 1h
+    grading:
+      tests:
+        - id: health
+          type: health
+          operation: getHealth
+          expected: {status: 200}
+        - id: composite-end-to-end
+          type: regression
+          operation: postSearch
+          input:
+            question: "What's the population of Berlin?"
+            user_id: "judge_42"
+          expected:
+            status: 200
+            citation_verbatim: true
+
+# ---- OpenAPI 3.1: the API contract -------------------------------------
+
+openapi: 3.1.0
+info:
+  title: RAG-on-Wikipedia Service
+  version: 1.0.0
+  description: >
+    Hosted endpoint set for the Production-Scale RAG on Wikipedia course.
+    Every learner deploys an instance of this service; the LMS judge
+    probes it with the gold set for their current module.
+
+paths:
+
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness + readiness probe
+      description: >
+        Returns immediately with the build SHA and which modules are wired
+        up. The grader uses `modules_active` to pick the right probe set.
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /search:
+    post:
+      operationId: postSearch
+      summary: Main RAG endpoint — answer a question with citations
+      description: >
+        Accepts a natural-language question; returns a grounded answer with
+        verbatim citations to Wikipedia articles, a confidence score, and a
+        trace_id. The cited quotes MUST be verbatim substrings of their
+        source articles — the grader verifies this deterministically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Successful answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Malformed request
+        '503':
+          description: Service degraded — return when sources insufficient
+
+  /trace/{trace_id}:
+    get:
+      operationId: getTrace
+      summary: Full retrieval + reasoning trace for a query
+      description: >
+        Returns the plan, retrieved chunks with scores, reranking decisions,
+        the prompt sent to the model, and the model's response. The grader
+        uses this to verify citation faithfulness and to attribute cost.
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trace document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceResponse'
+        '404':
+          description: Unknown trace_id
+
+  /eval:
+    get:
+      operationId: getEval
+      summary: Run the gold-set eval and return aggregate metrics
+      description: >
+        Triggers the agent's own eval against its bundled gold set; returns
+        accuracy, ECE, p95 latency, cost-per-query.
+      responses:
+        '200':
+          description: Eval results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvalResponse'
+
+  /feedback:
+    post:
+      operationId: postFeedback
+      summary: User feedback on a citation or answer
+      description: >
+        Capture thumbs / "missed source" / per-citation utility. Used by the
+        agent's feedback loop to improve retrieval and synthesis over time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '200':
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok]
+                properties:
+                  ok: {type: boolean}
+
+# ---- Reusable schemas (the contract) -----------------------------------
+
+components:
+  schemas:
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, build, model, modules_active]
+      properties:
+        ok:
+          type: boolean
+          description: True iff service is ready to serve.
+        build:
+          type: string
+          description: Git sha of the running build.
+        model:
+          type: string
+          description: Primary model the service uses for synthesis.
+        modules_active:
+          type: array
+          items: {type: string}
+          description: >
+            Which production capabilities are wired (e.g. ["chunking",
+            "hybrid", "rerank", "calibration"]). Grader picks probes
+            based on this.
+
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      required: [question, user_id]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          description: The natural-language question.
+        user_id:
+          type: string
+          description: Caller identity for cost attribution.
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Number of chunks to retrieve. Optional, default 5.
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Synthesizer output cap. Optional.
+
+    SearchResponse:
+      type: object
+      additionalProperties: false
+      required: [answer, citations, confidence, trace_id]
+      properties:
+        answer:
+          type: string
+          description: >
+            Markdown answer with [^N] citation markers referencing the
+            citations array. Every factual claim MUST cite.
+        citations:
+          type: array
+          items: {$ref: '#/components/schemas/Citation'}
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Calibrated confidence — high values must correlate with correctness.
+        trace_id:
+          type: string
+        tokens_in: {type: integer}
+        tokens_out: {type: integer}
+        cost_usd: {type: number}
+        latency_ms: {type: integer}
+
+    Citation:
+      type: object
+      additionalProperties: false
+      required: [id, article, quote]
+      properties:
+        id: {type: integer}
+        article:
+          type: string
+          description: Wikipedia article title.
+        section:
+          type: string
+          description: Section heading within the article (optional).
+        quote:
+          type: string
+          description: >
+            Verbatim substring of the article. The grader checks that this
+            string is literally present in the article — no paraphrasing.
+        char_offset:
+          type: integer
+          description: Char offset within the article where the quote starts.
+
+    TraceResponse:
+      type: object
+      additionalProperties: false
+      required: [trace_id, spans, totals]
+      properties:
+        trace_id: {type: string}
+        spans:
+          type: array
+          items:
+            type: object
+        totals:
+          type: object
+          properties:
+            tokens_in: {type: integer}
+            tokens_out: {type: integer}
+            cost_usd: {type: number}
+            duration_ms: {type: integer}
+
+    EvalResponse:
+      type: object
+      additionalProperties: false
+      required: [accuracy, ece, p95_latency_ms, cost_per_query_usd]
+      properties:
+        accuracy: {type: number}
+        ece: {type: number, description: "Expected Calibration Error"}
+        p95_latency_ms: {type: integer}
+        cost_per_query_usd: {type: number}
+        n_questions: {type: integer}
+
+    FeedbackRequest:
+      type: object
+      additionalProperties: false
+      required: [trace_id, rating]
+      properties:
+        trace_id: {type: string}
+        rating:
+          type: integer
+          enum: [-1, 0, 1]
+          description: -1 bad, 0 neutral, 1 good
+        per_citation:
+          type: array
+          items:
+            type: object
+            properties:
+              citation_id: {type: integer}
+              useful: {type: boolean}
+        comment: {type: string}
+        missed_source_url: {type: string}

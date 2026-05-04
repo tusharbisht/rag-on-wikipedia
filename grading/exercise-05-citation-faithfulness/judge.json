@@ -1,0 +1,48 @@
+{
+  "branch": "exercise/05-citation-faithfulness",
+  "endpoint": "GET /health",
+  "tests": [
+    {
+      "id": "health",
+      "endpoint_override": "GET /health",
+      "weight": 1.0,
+      "type": "health",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "unanswerable-gating",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "adversarial",
+      "input": {
+        "question": "What did Napoleon eat for breakfast on March 7, 1803?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "insufficient"
+        ]
+      }
+    },
+    {
+      "id": "citation-supports-claim",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "When was the Eiffel Tower completed?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "1889"
+        ],
+        "citation_verbatim": true
+      }
+    }
+  ]
+}

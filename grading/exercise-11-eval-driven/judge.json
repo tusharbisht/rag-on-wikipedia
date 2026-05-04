@@ -1,0 +1,15 @@
+{
+  "branch": "exercise/11-eval-driven",
+  "endpoint": "GET /health",
+  "tests": [
+    {
+      "id": "health",
+      "endpoint_override": "GET /health",
+      "weight": 1.0,
+      "type": "health",
+      "expected": {
+        "status": 200
+      }
+    }
+  ]
+}
