@@ -1,58 +1,35 @@
-# Exercise 1 — Structure-aware chunking
+# Index freshness via change stream
 
-> **The naive baseline (on `main`) chunks Wikipedia by paragraph. This destroys tables, infoboxes, lists, and cross-section context. Your job: replace the chunker so structural units stay atomic.**
+Wikipedia changes constantly — ~5 edits/second across all languages. A static dump from 6 months ago returns out-of-date answers for current-events queries: outdated population numbers, dead/replaced public figures, retracted claims. The naive index has no notion of time-of-fetch.
 
-## Why this matters
+## How to diagnose it
 
-The naive baseline's `naive_retrieve()` operates on paragraph chunks. That's fine for prose — "Hamlet was written by Shakespeare in 1601" is a single paragraph and survives chunking intact. It falls apart for **structured content**:
+Diff a fresh-fetched article against the indexed version. For 100 sample articles you'll find ~30% have changed materially since index build. Test queries about recent events (last 6 months) and observe answers reference outdated facts.
 
-- **Tables**: `| Capital | Cheyenne | ... |` row-1 lands in chunk A, row-2 in chunk B. The query "What's the capital of Wyoming?" retrieves chunk B (which says "Cheyenne") with no context — the LLM doesn't know it's a state capital.
-- **Infoboxes**: the right-hand summary boxes on Wikipedia articles are key-value dense. Naive chunking treats them as ordinary prose and loses the structure.
-- **Lists**: ordered/unordered lists get split mid-item. Population rankings, election results, drug interactions — all destroyed.
-- **Section context**: a chunk in the middle of "==Geography==" doesn't know it's about geography. Cross-section retrieval becomes random.
+## The fix
 
-Run `make eval` against the baseline. You'll see ~30-45% accuracy on the gold set. **Most failures are structural.** Look at the trace for any failed query — you'll see the retrieved chunks have broken structure.
+Subscribe to Wikipedia's recent-changes API (Server-Sent Events stream). For each changed article: re-fetch, re-chunk, re-embed the diff, upsert into the vector DB. Track per-article last-update timestamp. Surface a `freshness_lag_seconds` in /eval and gate on a < 1h SLO.
 
-## Your task
+## Success criteria
 
-Rewrite the chunking pipeline so:
+Recent-events gold-set accuracy improves by ≥30pp; freshness lag p95 < 1h sustained; cache invalidation correctly purges stale responses on source change.
 
-1. **Tables stay atomic.** Each table is one chunk, with a header row preserved as context.
-2. **Infoboxes stay atomic.** Same rule — one chunk per infobox, all key-value pairs together.
-3. **Lists stay atomic.** Each list (`<ul>` / `<ol>`) is one chunk, with its lead-in sentence.
-4. **Prose uses sliding-window with overlap.** 512 tokens per chunk, 64-token overlap, so a fact split across paragraphs lands in at least one chunk.
-5. **Each chunk carries its section path.** "United States > Wyoming > Geography > Cities" — embed this in the chunk's metadata so the retriever can use it.
+## Grading
 
-You'll need to parse the Wikipedia markup. The dataset bundles MediaWiki XML; use `mwparserfromhell` or hand-roll a parser for the subset of markup you need. The starter has a `kb_loader.py` module to extend.
+This module ships 5 probe(s):
 
-## How you'll know you got it right
+- `health` (health)
+- `freshness-lag-slo` (regression)
+- `recent-event-knowledge` (regression)
+- `cache-invalidation-on-change` (regression)
+- `regression-no-old-events-broken` (regression)
 
-Run `make eval` after your changes. The gold set's `factual-table-lookup-*` and `factual-list-lookup-*` questions should improve by ≥15pp. The `prose-lookup-no-regression` questions should stay at baseline-or-better. **Both conditions must hold** — improving table lookups at the cost of regressing prose is not a pass.
-
-You can also inspect specific traces via `GET /trace/{trace_id}`. After your fix, retrieved chunks for a "What's the capital of Wyoming?" query should contain the full state-summary infobox or the relevant table row with header context — not a half-row mid-table.
+Pass threshold: **70%**
 
 ## Submission
 
-```bash
-make run                          # smoke
-make eval                         # confirm metric movement
-# Host (ngrok / fly / render)
-# Submit the hosted URL on the LMS slide-3 form
-```
+Implement the fix. Run `make eval` locally to confirm metrics move. Host your service (ngrok / fly.io / render). Submit the URL on the LMS slide-3 form. The LMS judge probes your endpoint with the tests listed above.
 
-The LMS judge probes your endpoint with the gold set declared in [`grading/exercise-01-structure-aware-chunking/judge.json`](grading/exercise-01-structure-aware-chunking/judge.json) — that file is **generated** from `course.yaml` and represents the binding contract. Don't hand-edit it; if the test set needs to change, edit `course.yaml` upstream.
+---
 
-## Pass criteria
-
-- All `health` tests return 200 with the right shape
-- All `factual-table-lookup` tests return the expected entity in `body_contains`
-- `citation_verbatim: true` is enforced — every cited quote MUST be a literal substring of the source article
-- `prose-lookup-no-regression` tests still pass
-- Aggregate weighted score ≥ `pass_threshold_pct` (70 by default)
-
-## Non-goals for this module
-
-- Don't add hybrid retrieval yet — module 2 covers that
-- Don't add reranking yet — module 4
-- Don't add disambiguation yet — module 6
-- The eval/CI infrastructure is separate from the chunker; you only need to touch chunking + the loader
+_Module 8 of **Production-Scale RAG on Wikipedia** (branch `exercise/08-freshness`). Generated from `course.yaml`'s x-modules entry on `main`. Do not hand-edit — re-run the renderer to regenerate._
