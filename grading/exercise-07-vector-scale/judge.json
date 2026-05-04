@@ -28,34 +28,38 @@
       }
     },
     {
-      "id": "full-wiki-coverage-niche",
+      "id": "cold-restart-fast",
+      "endpoint_override": "GET /health",
+      "weight": 1.0,
+      "type": "contract",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "under-load-no-regression",
       "endpoint_override": "POST /search",
       "weight": 1.0,
       "type": "regression",
       "input": {
-        "question": "What is the chemical formula for kerogen?",
+        "question": "What is the boiling point of water?",
         "user_id": "judge_42"
       },
       "expected": {
         "status": 200,
         "body_contains": [
-          "kerogen"
+          "100"
         ],
         "citation_verbatim": true
       }
     },
     {
-      "id": "full-wiki-coverage-rare-entity",
-      "endpoint_override": "POST /search",
+      "id": "index-rebuild-resumable",
+      "endpoint_override": "GET /health",
       "weight": 1.0,
-      "type": "regression",
-      "input": {
-        "question": "What is the population of Llanfairpwllgwyngyll?",
-        "user_id": "judge_42"
-      },
+      "type": "contract",
       "expected": {
-        "status": 200,
-        "citation_verbatim": true
+        "status": 200
       }
     },
     {

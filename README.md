@@ -70,16 +70,20 @@ make eval                              # check the metric moves
 
 Every module ships gold-set probes. Each module's grade = improvement on its target metric + no regression on prior modules. **This is the production discipline: every change must improve target metric without regressing others.**
 
-## Wikipedia substrate — staged scale
+## Wikipedia substrate — Simple English throughout
 
-Don't pay $660 to embed full Wikipedia on day 1.
+The course uses **Simple English Wikipedia** (~200k articles, ~1M chunks at the chunking strategy from module 1) for every module. This keeps everything tractable on a laptop and bounds learner cost.
 
-- **Modules 1–6** use **Simple English Wikipedia** (~200k articles, ~$5 to re-embed completely)
-- **Module 7+** introduces full English Wikipedia, but the course **ships pre-built embeddings as a downloadable asset** — learners don't re-embed; they learn to *operate* at scale
+Why Simple English is enough:
+- **Scale lessons still work.** At 1M chunks, the naive in-memory search dies; you need real vector indexing. The "scale" module (M7) teaches HNSW + Qdrant on this realistic-but-bounded substrate, not theoretical big-Wiki sizing.
+- **Disambiguation, freshness, citation, calibration** — all skills exercise cleanly on the smaller corpus. Simple English has the same content classes (tables, infoboxes, lists, ambiguous entities, contested topics) just with fewer articles.
+- **Cost is bounded.** Embedding the full Simple English corpus once: ~$4 with text-embedding-3-small (or free using a local Ollama embedder like nomic-embed-text). Total course cost: ~$5–20 across all modules.
+- **Iteration is fast.** A rebuild takes minutes, not hours. Tight feedback loop, more learning per hour.
+
+A pre-embedded Simple English bundle is available as a downloadable asset (~6GB), so learners can skip the embedding step entirely if they want to focus on retrieval/synthesis.
+
 - **Wikidata** as the structured layer for entity resolution in module 6
-- **Wikipedia recent-changes API** for freshness in module 8
-
-Total learner cost: $20–50 across the whole course.
+- **Wikipedia recent-changes API** for freshness in module 8 (filtered to Simple English's article set)
 
 ## How grading works
 

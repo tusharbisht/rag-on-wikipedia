@@ -383,31 +383,38 @@ x-modules:
             body_contains: ["Shakespeare"]
 
   # =========================================================================
-  # Module 7: Vector index at production scale
+  # Module 7: Vector index at production scale (Simple-English scale)
   # =========================================================================
   - branch: exercise/07-vector-scale
     title: "Vector index at production scale"
     order: 7
     teaching_arc:
       problem: >
-        At Simple English scale (200k articles, ~1M chunks) pgvector with a
-        flat IVF index is fine. At full English Wikipedia scale (33M chunks)
-        it chokes: p95 retrieval > 5s, index build runs hours, memory blows
-        up. The naive approach doesn't extend.
+        Simple English Wikipedia is ~200k articles → ~1M chunks at the
+        chunking strategy you built in module 1. At 1M chunks, the naive
+        in-memory cosine search you've been running falls over: p95
+        retrieval > 5s, memory exceeds 8GB, every restart re-warms the
+        index from scratch (multi-minute startup). The "throw it in a
+        flat list and search linearly" approach doesn't scale even to
+        Simple English.
       diagnosis: >
-        Run `make benchmark-retrieval` against the bundled pre-embedded
-        full-Wikipedia dataset. Observe: p95 retrieval > 5s, p99 > 30s.
-        Inspect index memory — single-node pgvector at this scale needs
-        100+ GB RAM for sub-second retrieval, which most VMs don't have.
+        Run `make benchmark-retrieval` against the full Simple English
+        embedding bundle. Observe: p95 retrieval > 5s under load, p99 > 30s.
+        Memory profile shows the entire embedding matrix (~6GB at 1536
+        dims float32) is held in RAM for every replica. Adding a second
+        worker doubles memory cost.
       fix: >
         Switch to HNSW indexing in a production vector DB (Qdrant or
-        Weaviate). Shard by topic cluster (k-means on embeddings) so each
-        shard fits in a few GB. Rebuild via batched embedding pipeline
-        (concurrent fetch + embed + upsert; resumable on crash).
+        Weaviate, both run as Docker locally for the course). HNSW gives
+        sub-millisecond retrieval at this scale. Run a batched embedding
+        pipeline (concurrent fetch + embed + upsert; resumable on crash)
+        so re-indexing doesn't require holding everything in memory.
+        Persist the index to disk so restarts are fast. Optionally shard
+        by topic cluster if memory pressure persists.
       success_metric: >
-        p95 retrieval < 500ms on full Wikipedia; index rebuild for the
-        Simple English subset finishes in < 10 minutes; the deployed
-        service handles 100 RPS sustained.
+        p95 retrieval < 200ms at 1M-chunk scale; index rebuild from
+        cold finishes in < 10 minutes; restart-warm time < 5 seconds;
+        the deployed service handles 50 RPS sustained without OOM.
     grading:
       tests:
         - id: health
@@ -424,32 +431,39 @@ x-modules:
           expected:
             status: 200
             body_contains: ["Gates"]
-          # Judge worker fires this 50× concurrently and asserts p95 < 500ms.
-          # The expectation here is per-call; SLO is enforced via type=regression
-          # + the worker's latency_ms_p95 bookkeeping.
+          # Judge worker fires this 50× concurrently and asserts p95 < 200ms.
 
-        - id: full-wiki-coverage-niche
+        - id: cold-restart-fast
+          type: contract
+          operation: getHealth
+          expected:
+            status: 200
+          # Out-of-band: judge instructs the agent to restart, then polls
+          # /health with a deadline; passes only if /health returns 200
+          # within 5 seconds of restart (proves index persists, doesn't
+          # re-warm from raw embeddings).
+
+        - id: under-load-no-regression
           type: regression
           operation: postSearch
           input:
-            question: "What is the chemical formula for kerogen?"
+            question: "What is the boiling point of water?"
             user_id: "judge_42"
-          # A niche query that ONLY succeeds if full Wikipedia is indexed
-          # — Simple English doesn't have an article for kerogen.
           expected:
             status: 200
-            body_contains: ["kerogen"]
+            body_contains: ["100"]
             citation_verbatim: true
+          # Run during a sustained 50 RPS background load via the judge's
+          # concurrent fanout — accuracy must not drop under load.
 
-        - id: full-wiki-coverage-rare-entity
-          type: regression
-          operation: postSearch
-          input:
-            question: "What is the population of Llanfairpwllgwyngyll?"
-            user_id: "judge_42"
+        - id: index-rebuild-resumable
+          type: contract
+          operation: getHealth
           expected:
             status: 200
-            citation_verbatim: true
+          # Rubric verifies the agent exposes a `reindex_progress`
+          # endpoint or surfaces it in /health, with state that survives
+          # process kill mid-rebuild.
 
         - id: prose-no-regression
           type: regression
