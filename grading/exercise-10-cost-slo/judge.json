@@ -10,6 +10,80 @@
       "expected": {
         "status": 200
       }
+    },
+    {
+      "id": "cost-slo-p95",
+      "endpoint_override": "GET /eval",
+      "weight": 1.0,
+      "type": "regression",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "cache-hit-fast-second-call",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who founded Microsoft?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Gates"
+        ]
+      }
+    },
+    {
+      "id": "cache-correctness-fresh-equals-cached",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the speed of light?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "299"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "semantic-cache-near-match",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who established Microsoft?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Gates"
+        ]
+      }
+    },
+    {
+      "id": "prose-no-regression",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who wrote Hamlet?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Shakespeare"
+        ]
+      }
     }
   ]
 }

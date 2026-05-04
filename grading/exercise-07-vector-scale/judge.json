@@ -10,6 +10,69 @@
       "expected": {
         "status": 200
       }
+    },
+    {
+      "id": "latency-slo-p95",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who founded Microsoft?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Gates"
+        ]
+      }
+    },
+    {
+      "id": "full-wiki-coverage-niche",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the chemical formula for kerogen?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "kerogen"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "full-wiki-coverage-rare-entity",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the population of Llanfairpwllgwyngyll?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "prose-no-regression",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who wrote Hamlet?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Shakespeare"
+        ]
+      }
     }
   ]
 }

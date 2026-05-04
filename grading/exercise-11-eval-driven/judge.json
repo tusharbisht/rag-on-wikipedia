@@ -10,6 +10,56 @@
       "expected": {
         "status": 200
       }
+    },
+    {
+      "id": "eval-endpoint-shape",
+      "endpoint_override": "GET /eval",
+      "weight": 1.0,
+      "type": "contract",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "eval-coverage-rubric-criteria",
+      "endpoint_override": "GET /eval",
+      "weight": 1.0,
+      "type": "contract",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "regression-gate-catches-planted-regression",
+      "endpoint_override": "GET /eval",
+      "weight": 1.0,
+      "type": "contract",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "a-b-framework-present",
+      "endpoint_override": "GET /eval",
+      "weight": 1.0,
+      "type": "contract",
+      "expected": {
+        "status": 200
+      }
+    },
+    {
+      "id": "cumulative-end-to-end",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What's the GDP of Japan in 2023?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "citation_verbatim": true
+      }
     }
   ]
 }

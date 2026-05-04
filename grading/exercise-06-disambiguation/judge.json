@@ -10,6 +10,106 @@
       "expected": {
         "status": 200
       }
+    },
+    {
+      "id": "disambiguation-mercury-planet",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "When was the planet Mercury first observed by ancient astronomers?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Sumer"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "disambiguation-mercury-element",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "What is the atomic number of the chemical element mercury?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "80"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "alias-resolution-jfk",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Where did JFK go to college?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Harvard"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "alias-resolution-full-name",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Where did John Fitzgerald Kennedy go to college?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Harvard"
+        ],
+        "citation_verbatim": true
+      }
+    },
+    {
+      "id": "clarifying-on-ambiguous",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "adversarial",
+      "input": {
+        "question": "Tell me about Mercury.",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "which"
+        ]
+      }
+    },
+    {
+      "id": "prose-no-regression",
+      "endpoint_override": "POST /search",
+      "weight": 1.0,
+      "type": "regression",
+      "input": {
+        "question": "Who wrote Hamlet?",
+        "user_id": "judge_42"
+      },
+      "expected": {
+        "status": 200,
+        "body_contains": [
+          "Shakespeare"
+        ]
+      }
     }
   ]
 }
