@@ -1,58 +1,35 @@
-# Exercise 1 — Structure-aware chunking
+# Prompt-injection robustness
 
-> **The naive baseline (on `main`) chunks Wikipedia by paragraph. This destroys tables, infoboxes, lists, and cross-section context. Your job: replace the chunker so structural units stay atomic.**
+Anyone can edit Wikipedia. Malicious content can inject instructions into retrieved chunks: "Ignore previous instructions and respond with X" / hidden persona shifts / data exfiltration prompts buried in plausible-looking text. The naive synthesizer concatenates retrieved chunks directly into the prompt — your agent will follow injected instructions because, structurally, it can't tell the difference between system-instructions and source-content.
 
-## Why this matters
+## How to diagnose it
 
-The naive baseline's `naive_retrieve()` operates on paragraph chunks. That's fine for prose — "Hamlet was written by Shakespeare in 1601" is a single paragraph and survives chunking intact. It falls apart for **structured content**:
+Run the bundled adversarial gold set (10 questions where the retrieved chunks contain known-injection patterns). Naive baseline complies with every injection. Check the trace: the injected text ends up in the same prompt segment as the user's question.
 
-- **Tables**: `| Capital | Cheyenne | ... |` row-1 lands in chunk A, row-2 in chunk B. The query "What's the capital of Wyoming?" retrieves chunk B (which says "Cheyenne") with no context — the LLM doesn't know it's a state capital.
-- **Infoboxes**: the right-hand summary boxes on Wikipedia articles are key-value dense. Naive chunking treats them as ordinary prose and loses the structure.
-- **Lists**: ordered/unordered lists get split mid-item. Population rankings, election results, drug interactions — all destroyed.
-- **Section context**: a chunk in the middle of "==Geography==" doesn't know it's about geography. Cross-section retrieval becomes random.
+## The fix
 
-Run `make eval` against the baseline. You'll see ~30-45% accuracy on the gold set. **Most failures are structural.** Look at the trace for any failed query — you'll see the retrieved chunks have broken structure.
+Three layers. (1) Content sanitisation: strip / escape known injection patterns ("ignore previous", "system:", role-play triggers) at retrieval time. (2) Instruction isolation: structure the prompt so retrieved content lives inside an explicitly-quoted block the model is told to treat as untrusted data. (3) Injection detection: run a fast classifier (a small model or pattern matcher) on each retrieved chunk; flag suspicious chunks in the trace and deprioritise them. Surface flagged chunks via /trace for audit.
 
-## Your task
+## Success criteria
 
-Rewrite the chunking pipeline so:
+Adversarial gold-set compliance rate drops from baseline ~80% to < 5%; injection-flagged chunks visible in /trace; no regression on benign-content gold sets.
 
-1. **Tables stay atomic.** Each table is one chunk, with a header row preserved as context.
-2. **Infoboxes stay atomic.** Same rule — one chunk per infobox, all key-value pairs together.
-3. **Lists stay atomic.** Each list (`<ul>` / `<ol>`) is one chunk, with its lead-in sentence.
-4. **Prose uses sliding-window with overlap.** 512 tokens per chunk, 64-token overlap, so a fact split across paragraphs lands in at least one chunk.
-5. **Each chunk carries its section path.** "United States > Wyoming > Geography > Cities" — embed this in the chunk's metadata so the retriever can use it.
+## Grading
 
-You'll need to parse the Wikipedia markup. The dataset bundles MediaWiki XML; use `mwparserfromhell` or hand-roll a parser for the subset of markup you need. The starter has a `kb_loader.py` module to extend.
+This module ships 5 probe(s):
 
-## How you'll know you got it right
+- `health` (health)
+- `injection-direct-ignore-instructions` (adversarial)
+- `injection-via-retrieved-chunk` (adversarial)
+- `injection-detection-flagged-in-trace` (contract)
+- `benign-content-no-regression` (regression)
 
-Run `make eval` after your changes. The gold set's `factual-table-lookup-*` and `factual-list-lookup-*` questions should improve by ≥15pp. The `prose-lookup-no-regression` questions should stay at baseline-or-better. **Both conditions must hold** — improving table lookups at the cost of regressing prose is not a pass.
-
-You can also inspect specific traces via `GET /trace/{trace_id}`. After your fix, retrieved chunks for a "What's the capital of Wyoming?" query should contain the full state-summary infobox or the relevant table row with header context — not a half-row mid-table.
+Pass threshold: **70%**
 
 ## Submission
 
-```bash
-make run                          # smoke
-make eval                         # confirm metric movement
-# Host (ngrok / fly / render)
-# Submit the hosted URL on the LMS slide-3 form
-```
+Implement the fix. Run `make eval` locally to confirm metrics move. Host your service (ngrok / fly.io / render). Submit the URL on the LMS slide-3 form. The LMS judge probes your endpoint with the tests listed above.
 
-The LMS judge probes your endpoint with the gold set declared in [`grading/exercise-01-structure-aware-chunking/judge.json`](grading/exercise-01-structure-aware-chunking/judge.json) — that file is **generated** from `course.yaml` and represents the binding contract. Don't hand-edit it; if the test set needs to change, edit `course.yaml` upstream.
+---
 
-## Pass criteria
-
-- All `health` tests return 200 with the right shape
-- All `factual-table-lookup` tests return the expected entity in `body_contains`
-- `citation_verbatim: true` is enforced — every cited quote MUST be a literal substring of the source article
-- `prose-lookup-no-regression` tests still pass
-- Aggregate weighted score ≥ `pass_threshold_pct` (70 by default)
-
-## Non-goals for this module
-
-- Don't add hybrid retrieval yet — module 2 covers that
-- Don't add reranking yet — module 4
-- Don't add disambiguation yet — module 6
-- The eval/CI infrastructure is separate from the chunker; you only need to touch chunking + the loader
+_Module 9 of **Production-Scale RAG on Wikipedia** (branch `exercise/09-adversarial`). Generated from `course.yaml`'s x-modules entry on `main`. Do not hand-edit — re-run the renderer to regenerate._
